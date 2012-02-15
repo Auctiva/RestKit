@@ -40,26 +40,50 @@
 }
 
 - (id)initWithBaseURLString:(NSString*)baseURLString resourcePath:(NSString*)resourcePath queryParams:(NSDictionary*)queryParams {
-	NSString* resourcePathWithQueryString = RKPathAppendQueryParams(resourcePath, queryParams);
-	NSURL *baseURL = [NSURL URLWithString:baseURLString];
-	NSString* completePath = [[baseURL path] stringByAppendingPathComponent:resourcePathWithQueryString];
-    // Preserve trailing slash in resourcePath
-    if (resourcePath && [resourcePath characterAtIndex:[resourcePath length] - 1] == '/') {
-        completePath = [completePath stringByAppendingString:@"/"];
+    if ([baseURLString length] == 0 && queryParams == nil) {
+        // Assume we were only given a resource path, and that it is complete.
+        self = [self initWithString:resourcePath];
+        if (self) {
+            // Synthisize the baseURL string.
+            _baseURLString = [[NSString stringWithFormat:@"%@://%@:%@", [self scheme], [self host], ([self port] != nil ? [self port] : @"80")] copy];
+            
+            // The resource path is taken from the NSURL
+            _resourcePath = [[self path] copy];
+            
+            // Construct an NSDictionary with the queryParams from the NSURL
+            NSMutableDictionary *queryParams = [[NSMutableDictionary alloc] init];
+            NSArray *paramStrings = [[self query] componentsSeparatedByString:@"&"];
+            for (NSString *param in paramStrings) {
+                NSArray *components = [param componentsSeparatedByString:@"="];
+                NSString *key = [components objectAtIndex:0];
+                NSString *value = [components objectAtIndex:1];
+                [queryParams setObject:value forKey:key];
+            }
+            _queryParams = [queryParams retain];
+        }
+    } else {
+        NSString* resourcePathWithQueryString = RKPathAppendQueryParams(resourcePath, queryParams);
+        NSURL *baseURL = [NSURL URLWithString:baseURLString];
+        NSString* completePath = [[baseURL path] stringByAppendingPathComponent:resourcePathWithQueryString];
+        // Preserve trailing slash in resourcePath
+        if (resourcePath && [resourcePath characterAtIndex:[resourcePath length] - 1] == '/') {
+            completePath = [completePath stringByAppendingString:@"/"];
+        }
+        NSURL* completeURL = [NSURL URLWithString:completePath relativeToURL:baseURL];
+        if (!completeURL) {
+            [self release];
+            return nil;
+        }
+        
+        // You can't safely use initWithString:relativeToURL: in a NSURL subclass, see http://www.openradar.me/9729706
+        self = [self initWithString:[completeURL absoluteString]];
+        if (self) {
+            _baseURLString = [baseURLString copy];
+            _resourcePath = [resourcePath copy];
+            _queryParams = [queryParams retain];
+        }
     }
-	NSURL* completeURL = [NSURL URLWithString:completePath relativeToURL:baseURL];
-	if (!completeURL) {
-		[self release];
-		return nil;
-	}
-	
-	// You can't safely use initWithString:relativeToURL: in a NSURL subclass, see http://www.openradar.me/9729706
-	self = [self initWithString:[completeURL absoluteString]];
-	if (self) {
-		_baseURLString = [baseURLString copy];
-		_resourcePath = [resourcePath copy];
-		_queryParams = [queryParams retain];
-	}
+    
 	return self;
 }
 
